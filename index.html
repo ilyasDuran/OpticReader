@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>OMR Terminali - Tam Otomatik Okuyucu</title>
+    <script async src="https://docs.opencv.org/4.5.2/opencv.js" type="text/javascript"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: white; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; }
+        .main-grid { display: grid; grid-template-columns: 640px 400px; gap: 20px; max-width: 1100px; }
+        .view-box { background: #000; border: 3px solid #3498db; border-radius: 10px; position: relative; overflow: hidden; height: 480px; }
+        video, #canvasOutput { position: absolute; width: 100%; height: 100%; object-fit: cover; }
+        .results-panel { background: white; color: #333; padding: 20px; border-radius: 10px; height: 480px; overflow-y: auto; }
+        .btn { background: #27ae60; color: white; border: none; padding: 15px; width: 100%; cursor: pointer; font-size: 18px; border-radius: 8px; font-weight: bold; margin-bottom: 15px; }
+        #warpCanvas { width: 100%; border: 1px solid #ccc; margin-top: 10px; display: none; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border-bottom: 1px solid #ddd; padding: 8px; text-align: center; }
+        .highlight { background: #e67e22; color: white; padding: 2px 6px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+    <h2 style="margin-bottom: 10px;">Profesyonel Optik Okuma Sistemi</h2>
+    <p id="log" style="color: #aaa; margin-bottom: 20px;">OpenCV yükleniyor...</p>
+
+    <div class="main-grid">
+        <div class="view-box">
+            <video id="videoInput" autoplay playsinline></video>
+            <canvas id="canvasOutput"></canvas>
+        </div>
+
+        <div class="results-panel">
+            <button class="btn" id="scanBtn">FORMU TARA VE OKU</button>
+            <div id="status" style="font-weight: bold; color: #d35400;">Bekleniyor...</div>
+            <canvas id="warpCanvas"></canvas>
+            <table id="resultsTable">
+                <thead><tr><th>Soru</th><th>Cevap</th><th>Yoğunluk</th></tr></thead>
+                <tbody id="resultsBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let coordinateMap = null;
+        const video = document.getElementById('videoInput');
+        
+        // 1. JSON Yükleme
+        async function loadConfig() {
+            try {
+                const response = await fetch('optik_20q_4o.json');
+                coordinateMap = await response.json();
+                document.getElementById('log').innerText = "JSON ve OpenCV Hazır.";
+            } catch (err) {
+                document.getElementById('log').innerText = "Hata: optik_20q_4o.json bulunamadı!";
+            }
+        }
+
+        navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: 'environment' } })
+            .then(stream => { video.srcObject = stream; });
+
+        window.onOpenCvReady = () => { loadConfig(); };
+
+        // 2. Nokta Sıralama Fonksiyonu (Kritik Matematik)
+        function orderPoints(pts) {
+            // pts: [[x,y], [x,y], [x,y], [x,y]]
+            let rect = new Array(4);
+            
+            // Toplam (x+y) en küçük olan Sol-Üst (TL)
+            // Toplam (x+y) en büyük olan Sağ-Alt (BR)
+            let sums = pts.map(p => p[0] + p[1]);
+            rect[0] = pts[sums.indexOf(Math.min(...sums))];
+            rect[2] = pts[sums.indexOf(Math.max(...sums))];
+
+            // Fark (y-x) en küçük olan Sağ-Üst (TR)
+            // Fark (y-x) en büyük olan Sol-Alt (BL)
+            let diffs = pts.map(p => p[1] - p[0]);
+            rect[1] = pts[diffs.indexOf(Math.min(...diffs))];
+            rect[3] = pts[diffs.indexOf(Math.max(...diffs))];
+
+            return rect;
+        }
+
+        document.getElementById('scanBtn').onclick = () => {
+            if (!cv || !coordinateMap) return;
+
+            let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+            let cap = new cv.VideoCapture(video);
+            cap.read(src);
+
+            let gray = new cv.Mat();
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+            let thresh = new cv.Mat();
+            cv.threshold(gray, thresh, 120, 255, cv.THRESH_BINARY_INV);
+
+            let contours = new cv.MatVector();
+            let hierarchy = new cv.Mat();
+            cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+            let markerCoords = [];
+            for (let i = 0; i < contours.size(); ++i) {
+                let cnt = contours.get(i);
+                let rect = cv.boundingRect(cnt);
+                if (rect.width > 25 && rect.width < 100 && Math.abs(1 - rect.width/rect.height) < 0.2) {
+                    markerCoords.push([rect.x + rect.width/2, rect.y + rect.height/2]);
+                }
+            }
+
+            if (markerCoords.length >= 4) {
+                // Sadece en dıştaki 4 marker'ı al (basitleştirilmiş)
+                let ordered = orderPoints(markerCoords.slice(0,4));
+                processWarp(src, ordered);
+                document.getElementById('status').innerText = "Okuma Başarılı!";
+            } else {
+                document.getElementById('status').innerText = "Marker bulunamadı! (" + markerCoords.length + "/4)";
+            }
+
+            src.delete(); gray.delete(); thresh.delete(); contours.delete(); hierarchy.delete();
+        };
+
+        function processWarp(src, points) {
+            const dstW = coordinateMap.config.width; // 2000
+            const dstH = coordinateMap.config.height; // 1414
+
+            let srcPts = cv.matFromArray(4, 1, cv.CV_32FC2, [].concat(...points));
+            let dstPts = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, dstW, 0, dstW, dstH, 0, dstH]);
+
+            let M = cv.getPerspectiveTransform(srcPts, dstPts);
+            let warped = new cv.Mat();
+            cv.warpPerspective(src, warped, M, new cv.Size(dstW, dstH));
+
+            // Analiz Et
+            analyzeAnswers(warped);
+
+            // Önizleme göster (opsiyonel)
+            cv.imshow('warpCanvas', warped);
+            document.getElementById('warpCanvas').style.display = "block";
+
+            warped.delete(); srcPts.delete(); dstPts.delete(); M.delete();
+        }
+
+        function analyzeAnswers(warped) {
+            let grayWarped = new cv.Mat();
+            cv.cvtColor(warped, grayWarped, cv.COLOR_RGBA2GRAY);
+            cv.threshold(grayWarped, grayWarped, 150, 255, cv.THRESH_BINARY_INV);
+
+            const resultsBody = document.getElementById('resultsBody');
+            resultsBody.innerHTML = "";
+
+            // Sadece Sol Formu Oku (Örnek)
+            coordinateMap.forms[0].questions.forEach(q => {
+                let bestOpt = "";
+                let maxFill = 0;
+
+                Object.keys(q.coords).forEach(opt => {
+                    let c = q.coords[opt];
+                    let r = 20; // Arama yarıçapı
+                    let roi = grayWarped.roi(new cv.Rect(c.x - r, c.y - r, r*2, r*2));
+                    let fillPercent = (cv.countNonZero(roi) / (roi.rows * roi.cols)) * 100;
+                    
+                    if (fillPercent > maxFill && fillPercent > 20) { // %20 barajı (eşik)
+                        maxFill = fillPercent;
+                        bestOpt = opt;
+                    }
+                    roi.delete();
+                });
+
+                resultsBody.innerHTML += `<tr><td>${q.q}</td><td><span class="${bestOpt?'highlight':''}">${bestOpt || '-'}</span></td><td>%${Math.round(maxFill)}</td></tr>`;
+            });
+            grayWarped.delete();
+        }
+    </script>
+    <script async src="https://docs.opencv.org/4.5.2/opencv.js" onload="onOpenCvReady();"></script>
+</body>
+</html>

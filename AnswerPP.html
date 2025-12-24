@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Tekli A5 Dikey Optik Form</title>
+    <style>
+        body { background: #444; display: flex; flex-direction: column; align-items: center; padding: 20px; font-family: sans-serif; }
+        canvas { background: white; box-shadow: 0 0 30px rgba(0,0,0,0.7); }
+        .controls { margin-top: 20px; display: flex; gap: 15px; }
+        button { padding: 12px 24px; cursor: pointer; font-weight: bold; border-radius: 8px; border: none; transition: 0.2s; }
+        .btn-download { background: #3498db; color: white; }
+        .btn-json { background: #27ae60; color: white; }
+        button:hover { transform: translateY(-2px); opacity: 0.9; }
+    </style>
+</head>
+<body>
+
+    <canvas id="optikCanvas"></canvas>
+    
+    <div class="controls">
+        <button class="btn-download" onclick="downloadForm()">PNG Kaydet</button>
+        <button class="btn-json" onclick="downloadJSON()">Hizalama Haritasını (JSON) İndir</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('optikCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // A5 Dikey Standartları (2000 yükseklik, 1414 genişlik)
+        const width = 1414; 
+        const height = 2000; 
+        canvas.width = width;
+        canvas.height = height;
+        canvas.style.height = "850px"; // Ekranda sığması için görsel küçültme
+
+        let coordinateMap = {
+            config: { width, height },
+            markers: [], 
+            forms: []
+        };
+
+        function drawForm() {
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, width, height);
+
+            // 1. ADIM: İçerikleri Çiz (Zebra, Sorular, Yazılar)
+            // Offset artık 0, çünkü tek form var
+            coordinateMap.forms.push(drawFormContent(0, "tek_form"));
+
+            // 2. ADIM: EN ÜST KATMAN (Markerlar ve Raylar)
+            drawTopLayerMarkers();
+        }
+
+        function drawFormContent(offsetX, formId) {
+            const innerWidth = width;
+            
+            // Başlık
+            ctx.fillStyle = "black";
+            ctx.font = "bold 60px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("OPTİK CEVAP FORMU", innerWidth / 2, 180);
+
+            // Bilgi Alanları
+            ctx.textAlign = "left";
+            ctx.font = "bold 30px Arial";
+            const fieldMargin = 180;
+            ["AD SOYAD:", "DERS:", "NO:", "TARİH:"].forEach((text, i) => {
+                const y = 300 + (i * 70);
+                ctx.fillText(text, fieldMargin, y);
+                ctx.lineWidth = 2;
+                ctx.strokeRect(fieldMargin + 220, y - 40, innerWidth - (fieldMargin * 2) - 100, 55);
+            });
+
+            // Sütunları Çiz (20 soruyu iki sütuna bölüyoruz)
+            const col1 = renderQuestionColumn(200, 650, 1, 10);
+            const col2 = renderQuestionColumn(width / 2 + 50, 650, 11, 20);
+            
+            return { id: formId, questions: [...col1, ...col2] };
+        }
+
+        function renderQuestionColumn(x, yStart, startNum, endNum) {
+            const rowH = 110; // Tek form olduğu için satırları genişlettik
+            const colW = 80;
+            let qData = [];
+
+            for (let i = 0; i <= (endNum - startNum); i++) {
+                const qNum = startNum + i;
+                const y = yStart + (i * rowH);
+                
+                // Zebra (Alt Katman)
+                if (i % 2 === 1) {
+                    ctx.fillStyle = "#f8f8f8";
+                    ctx.fillRect(x - 20, y - 40, 480, rowH);
+                }
+
+                ctx.fillStyle = "black";
+                ctx.font = "bold 40px Arial";
+                ctx.textAlign = "left";
+                ctx.fillText(qNum + ".", x, y + 35);
+
+                let opts = {};
+                ["A", "B", "C", "D"].forEach((opt, j) => {
+                    const cX = x + 120 + (j * colW);
+                    const cY = y + 20;
+                    opts[opt] = { x: Math.round(cX), y: Math.round(cY) };
+
+                    ctx.beginPath();
+                    ctx.arc(cX, cY, 32, 0, Math.PI * 2);
+                    ctx.fillStyle = "white";
+                    ctx.fill();
+                    ctx.lineWidth = 3.5;
+                    ctx.strokeStyle = "black";
+                    ctx.stroke();
+
+                    ctx.fillStyle = "black";
+                    ctx.font = "bold 28px Arial";
+                    ctx.textAlign = "center";
+                    ctx.fillText(opt, cX, cY + 10);
+                });
+                qData.push({ q: qNum, coords: opts });
+            }
+            return qData;
+        }
+
+        function drawTopLayerMarkers() {
+            const mSize = 80; // Markerları daha büyük yaptık (tespit kolaylığı)
+            const margin = 60;
+            const railW = 20;
+            ctx.fillStyle = "black";
+            
+            const positions = [
+                { x: margin, y: margin, type: "TL" },
+                { x: width - margin - mSize, y: margin, type: "TR" },
+                { x: margin, y: height - margin - mSize, type: "BL" },
+                { x: width - margin - mSize, y: height - margin - mSize, type: "BR" }
+            ];
+
+            positions.forEach(pos => {
+                ctx.fillRect(pos.x, pos.y, mSize, mSize);
+                coordinateMap.markers.push(pos);
+            });
+
+            // Dikey Hizalama Rayları (Soru sütunlarının yanında)
+            ctx.fillRect(margin + 20, 620, railW, 1150);
+            ctx.fillRect(width - margin - mSize + 25, 620, railW, 1150);
+        }
+
+        function downloadForm() {
+            const link = document.createElement('a');
+            link.download = 'tekli-optik-form-a5.png';
+            link.href = canvas.toDataURL("image/png");
+            link.click();
+        }
+
+        function downloadJSON() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(coordinateMap, null, 4));
+            const dl = document.createElement('a');
+            dl.setAttribute("href", dataStr);
+            dl.setAttribute("download", "optik_2_20q_4o.json");
+            dl.click();
+        }
+
+        drawForm();
+    </script>
+</body>
+</html>
