@@ -75,7 +75,7 @@
                 const files = await response.json();
                 
                 templateSelect.innerHTML = '<option value="">-- Şablon Seçiniz --</option>';
-                const jsonFiles = files.filter(f => f.name.startsWith('optic_') && f.name.endsWith('.json'));
+                const jsonFiles = files.filter(f => f.name.startsWith('optik_') && f.name.endsWith('.json'));
                 
                 if (jsonFiles.length === 0) {
                     templateSelect.innerHTML = '<option value="">Şablon Bulunamadı</option>';
@@ -85,7 +85,7 @@
                 jsonFiles.forEach(file => {
                     const option = document.createElement('option');
                     option.value = file.name;
-                    option.innerText = file.name.replace('optic_', '').replace('.json', '').replace(/_/g, ' ').toUpperCase();
+                    option.innerText = file.name.replace('optik_', '').replace('.json', '').replace(/_/g, ' ').toUpperCase();
                     templateSelect.appendChild(option);
                 });
                 logBox.innerText = "Şablonlar listelendi. Lütfen birini seçin.";
@@ -223,3 +223,4 @@
     <script async src="https://docs.opencv.org/4.5.2/opencv.js" onload="onOpenCvReady();"></script>
 </body>
 </html>
+
