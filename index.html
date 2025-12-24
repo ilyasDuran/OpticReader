@@ -2,7 +2,7 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <title>OMR Terminali - Çoklu Şablon Destekli</title>
+    <title>OMR Terminali - Özelleştirilmiş Şablon Sistemi</title>
     <script async src="https://docs.opencv.org/4.5.2/opencv.js" type="text/javascript"></script>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: white; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; }
@@ -11,24 +11,25 @@
         video, #canvasOutput { position: absolute; width: 100%; height: 100%; object-fit: cover; }
         .results-panel { background: white; color: #333; padding: 20px; border-radius: 10px; height: 480px; overflow-y: auto; }
         
-        /* Arayüz Geliştirmeleri */
         .controls-area { width: 100%; margin-bottom: 15px; }
-        select.btn { background: #34495e; text-align: left; appearance: none; }
-        .btn { background: #27ae60; color: white; border: none; padding: 15px; width: 100%; cursor: pointer; font-size: 16px; border-radius: 8px; font-weight: bold; margin-bottom: 10px; transition: 0.3s; }
+        label { font-size: 12px; font-weight: bold; color: #666; display: block; margin-bottom: 5px; }
+        
+        select.btn { background: #34495e; text-align: left; appearance: auto; color: white; margin-bottom: 10px; }
+        .btn { background: #27ae60; color: white; border: none; padding: 15px; width: 100%; cursor: pointer; font-size: 16px; border-radius: 8px; font-weight: bold; transition: 0.3s; }
         .btn:hover { opacity: 0.9; transform: translateY(-1px); }
         .btn:disabled { background: #7f8c8d; cursor: not-allowed; }
         
         #warpCanvas { width: 100%; border: 1px solid #ccc; margin-top: 10px; display: none; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { border-bottom: 1px solid #ddd; padding: 8px; text-align: center; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border-bottom: 1px solid #ddd; padding: 8px; text-align: center; font-size: 14px; }
         .highlight { background: #e67e22; color: white; padding: 2px 6px; border-radius: 4px; }
-        #log { color: #aaa; font-size: 13px; margin-bottom: 20px; text-align: center; }
+        #log { color: #aaa; font-size: 13px; margin-bottom: 20px; height: 20px; }
     </style>
 </head>
 <body>
 
     <h2 style="margin-bottom: 5px;">Hassas Optik Okuma Terminali</h2>
-    <div id="log">Sistem başlatılıyor...</div>
+    <div id="log">Sistem hazırlanıyor...</div>
 
     <div class="main-grid">
         <div class="view-box">
@@ -38,28 +39,32 @@
 
         <div class="results-panel">
             <div class="controls-area">
-                <label style="font-size: 12px; font-weight: bold; color: #666;">Sınav Şablonu:</label>
+                <label>Sınav Şablonu Seçin:</label>
                 <select id="templateSelect" class="btn">
-                    <option value="">Şablonlar Yükleniyor...</option>
+                    <option value="">Yükleniyor...</option>
                 </select>
                 <button class="btn" id="scanBtn" disabled>FORMU TARA VE OKU</button>
             </div>
 
-            <div id="status" style="font-weight: bold; color: #d35400; margin-bottom: 10px;">Bekleniyor...</div>
+            <div id="status" style="font-weight: bold; color: #d35400; margin-bottom: 10px;">Lütfen şablon seçin</div>
             <canvas id="warpCanvas"></canvas>
             
             <table id="resultsTable">
-                <thead><tr><th>Soru</th><th>Cevap</th><th>Yoğunluk</th></tr></thead>
+                <thead><tr><th>Soru</th><th>Cevap</th><th>Doluluk</th></tr></thead>
                 <tbody id="resultsBody"></tbody>
             </table>
         </div>
     </div>
 
     <script>
-        // --- AYARLAR: BURAYI KENDİ BİLGİLERİNLE DOLDUR ---
-        const GITHUB_USER = "KullaniciAdiniz"; 
-        const REPO_NAME = "DepoAdiniz";
-        // -----------------------------------------------
+        // --- ŞABLON LİSTESİ ---
+        // Buraya istediğiniz kadar dosya ekleyebilirsiniz.
+        const TEMPLATE_FILES = [
+            { fileName: "optik_20q_4o.json", displayName: "20 Soruluk Deneme Sınavı" },
+            { fileName: "optik_quiz_10.json", displayName: "10 Soruluk Quiz" },
+            { fileName: "optik_final_exam.json", displayName: "Dönem Sonu Finali" }
+        ];
+        // ----------------------
 
         let coordinateMap = null;
         const video = document.getElementById('videoInput');
@@ -67,31 +72,16 @@
         const scanBtn = document.getElementById('scanBtn');
         const logBox = document.getElementById('log');
 
-        // 1. GitHub'daki Şablonları Listele
-        async function listTemplates() {
-            try {
-                const response = await fetch(`https://api.github.com/repos/${GITHUB_USER}/${REPO_NAME}/contents/`);
-                if (!response.ok) throw new Error("GitHub erişim hatası.");
-                const files = await response.json();
-                
-                templateSelect.innerHTML = '<option value="">-- Şablon Seçiniz --</option>';
-                const jsonFiles = files.filter(f => f.name.startsWith('optik_') && f.name.endsWith('.json'));
-                
-                if (jsonFiles.length === 0) {
-                    templateSelect.innerHTML = '<option value="">Şablon Bulunamadı</option>';
-                    return;
-                }
-
-                jsonFiles.forEach(file => {
-                    const option = document.createElement('option');
-                    option.value = file.name;
-                    option.innerText = file.name.replace('optik_', '').replace('.json', '').replace(/_/g, ' ').toUpperCase();
-                    templateSelect.appendChild(option);
-                });
-                logBox.innerText = "Şablonlar listelendi. Lütfen birini seçin.";
-            } catch (err) {
-                logBox.innerText = "Hata: Şablon listesi alınamadı. (GitHub API limitine takılmış olabilirsiniz)";
-            }
+        // 1. Şablonları Listele
+        function listTemplates() {
+            templateSelect.innerHTML = '<option value="">-- Şablon Seçiniz --</option>';
+            TEMPLATE_FILES.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item.fileName;
+                option.innerText = item.displayName;
+                templateSelect.appendChild(option);
+            });
+            logBox.innerText = "Şablon listesi hazır.";
         }
 
         // 2. Seçilen Şablonu Yükle
@@ -99,17 +89,21 @@
             const fileName = templateSelect.value;
             if (!fileName) {
                 scanBtn.disabled = true;
+                document.getElementById('status').innerText = "Lütfen şablon seçin";
                 return;
             }
 
             try {
+                // GitHub Pages veya yerel sunucu üzerinden dosyayı çeker
                 const response = await fetch(`./${fileName}`);
+                if(!response.ok) throw new Error("Dosya bulunamadı");
                 coordinateMap = await response.json();
                 scanBtn.disabled = false;
-                logBox.innerText = `Şablon yüklendi: ${fileName}`;
-                document.getElementById('status').innerText = "Hazır.";
+                logBox.innerText = `Yüklendi: ${fileName}`;
+                document.getElementById('status').innerText = "Hazır, formu kameraya gösterin.";
             } catch (err) {
                 logBox.innerText = "Hata: JSON dosyası okunamadı!";
+                scanBtn.disabled = true;
             }
         };
 
@@ -118,11 +112,11 @@
             .then(stream => { video.srcObject = stream; });
 
         window.onOpenCvReady = () => {
-            logBox.innerText = "OpenCV Yüklendi. Şablonlar aranıyor...";
+            logBox.innerText = "OpenCV Hazır.";
             listTemplates();
         };
 
-        // 4. Nokta Sıralama (Perspektif için)
+        // 4. Nokta Sıralama (Perspektif Düzeltme için)
         function orderPoints(pts) {
             let rect = new Array(4);
             let sums = pts.map(p => p[0] + p[1]);
@@ -163,9 +157,9 @@
             if (markerCoords.length >= 4) {
                 let ordered = orderPoints(markerCoords.slice(0,4));
                 processWarp(src, ordered);
-                document.getElementById('status').innerText = "Okuma Başarılı!";
+                document.getElementById('status').innerText = "Tarama Tamamlandı!";
             } else {
-                document.getElementById('status').innerText = `Marker hatası: ${markerCoords.length}/4 bulundu.`;
+                document.getElementById('status').innerText = `Hata: 4 köşe bulunamadı! (${markerCoords.length}/4)`;
             }
 
             src.delete(); gray.delete(); thresh.delete(); contours.delete(); hierarchy.delete();
@@ -193,22 +187,24 @@
         function analyzeAnswers(warped) {
             let grayWarped = new cv.Mat();
             cv.cvtColor(warped, grayWarped, cv.COLOR_RGBA2GRAY);
+            // Uyarlanabilir eşikleme (Işık değişimlerine karşı daha dirençli)
             cv.threshold(grayWarped, grayWarped, 150, 255, cv.THRESH_BINARY_INV);
 
             const resultsBody = document.getElementById('resultsBody');
             resultsBody.innerHTML = "";
 
+            // JSON içindeki ilk formu tara
             coordinateMap.forms[0].questions.forEach(q => {
                 let bestOpt = "";
                 let maxFill = 0;
 
                 Object.keys(q.coords).forEach(opt => {
                     let c = q.coords[opt];
-                    let r = 20; 
+                    let r = 22; // Okuma yarıçapı
                     let roi = grayWarped.roi(new cv.Rect(c.x - r, c.y - r, r*2, r*2));
                     let fillPercent = (cv.countNonZero(roi) / (roi.rows * roi.cols)) * 100;
                     
-                    if (fillPercent > maxFill && fillPercent > 20) {
+                    if (fillPercent > maxFill && fillPercent > 18) { // %18 eşik değeri
                         maxFill = fillPercent;
                         bestOpt = opt;
                     }
@@ -223,5 +219,3 @@
     <script async src="https://docs.opencv.org/4.5.2/opencv.js" onload="onOpenCvReady();"></script>
 </body>
 </html>
-
-
