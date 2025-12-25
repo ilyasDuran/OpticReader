@@ -9,6 +9,10 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#2c3e50">
 
+    <link rel="manifest" href="manifest.json">
+
+    <link rel="apple-touch-icon" href="https://via.placeholder.com/192x192/27ae60/ffffff?text=OptikOku">
+
     <script async src="https://docs.opencv.org/4.5.2/opencv.js" onload="onOpenCvReady();"></script>
 
     <style>
@@ -183,6 +187,15 @@
 </div>
 
 <script>
+
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('Servis çalışıyor.'))
+                .catch(err => console.log('Hata:', err));
+        });
+    }
+    
     let currentStep = 0, coordinateMap = null, keyLoaded = false;
     let wakeLock = null;
 
@@ -257,3 +270,4 @@
 </script>
 </body>
 </html>
+
